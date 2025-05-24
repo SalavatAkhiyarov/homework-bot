@@ -61,11 +61,11 @@ def send_message(bot, message):
     """Отправка сообщения в чат."""
     try:
         bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
-        logger.debug(f'Сообщение {message} отправлено')
-        return True
     except Exception as error:
         logger.error(f'Сообщение {message} не отправлено: {error}')
         return False
+    logger.debug(f'Сообщение {message} отправлено')
+    return True
 
 
 def get_api_answer(timestamp):
@@ -76,21 +76,18 @@ def get_api_answer(timestamp):
         'params': {'from_date': timestamp}
     }
     logger.debug(
-        f'Запрос к API {request_data["url"]} '
-        f'с параметром {request_data["params"]} '
-        f'и заголовком {request_data["headers"]}'
+        'Запрос к API {url} '
+        'с параметром {params} '
+        'и заголовком {headers}'.format(**request_data)
     )
     try:
-        response = requests.get(
-            request_data['url'],
-            headers=request_data['headers'],
-            params=request_data['params']
-        )
+        response = requests.get(**request_data)
     except requests.RequestException as error:
         raise ConnectionError(
-            f'Ошибка {error} при запросе к API {request_data["url"]} '
-            f'с параметром {request_data["params"]} '
-            f'и заголовком {request_data["headers"]}'
+            'Ошибка {error} при запросе к API {url} '
+            'с параметром {params} и заголовком {headers}'.format(
+                error=error, **request_data
+            )
         )
     if response.status_code != HTTPStatus.OK:
         raise ApiResponseError(
@@ -121,7 +118,7 @@ def parse_status(homework):
     homework_name = homework['homework_name']
     status = homework['status']
     if status not in HOMEWORK_VERDICTS:
-        raise ValueError('Cтатус {status} отсутствует')
+        raise ValueError('Неождианный статус: {status}')
     verdict = HOMEWORK_VERDICTS[status]
     return (
         f'Изменился статус проверки работы "{homework_name}". {verdict}'
@@ -133,7 +130,7 @@ def main():
     check_tokens()
     bot = TeleBot(token=TELEGRAM_TOKEN)
     timestamp = int(time.time())
-    previous_message = None
+    previous_message = ''
     while True:
         try:
             response = get_api_answer(timestamp)
@@ -142,16 +139,15 @@ def main():
                 logger.debug('Проверенных работ пока нет')
             homework = homeworks[0]
             new_message = parse_status(homework)
-            if new_message != previous_message:
-                if send_message(bot, new_message):
-                    previous_message = new_message
-            timestamp = response.get('current_date', timestamp)
+            if (new_message != previous_message
+                    and send_message(bot, new_message)):
+                previous_message = new_message
+                timestamp = response.get('current_date', timestamp)
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
-            logger.error(message)
-            if message != previous_message:
-                if send_message(bot, message):
-                    previous_message = message
+            logger.exception(message)
+            if message != previous_message and send_message(bot, message):
+                previous_message = message
         finally:
             time.sleep(RETRY_PERIOD)
 
